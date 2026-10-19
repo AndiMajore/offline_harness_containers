@@ -1,0 +1,98 @@
+name: opencode2
+
+services:
+  # The Gatekeeper: the only container with internet access. It forwards
+  # requests exclusively to the domains whitelisted in ./squid.conf.
+  llm-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+      - ./allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+    networks:
+      - agent-internal
+      - upstream-lan
+
+  # Optional ingress for the web UI, OFF by default. Enable with
+  # `docker compose --profile ui up -d` (or COMPOSE_PROFILES=ui in .env).
+  # Docker doesn't publish ports of containers that are only on an internal
+  # network, so this forwarder sits on both networks, listens on the host's
+  # loopback and forwards to the harness's UI port only. The harness itself
+  # still has no route out.
+  ui-gateway:
+    image: alpine/socat:latest
+    profiles: ["ui"]
+    restart: unless-stopped
+    command: ["tcp-listen:4096,fork,reuseaddr", "tcp-connect:opencode:4096"]
+    ports:
+      - "127.0.0.1:${OPENCODE_PORT:-4096}:4096"
+    networks:
+      - agent-internal
+      - upstream-lan
+
+  # One-shot init: asks the endpoint which models it serves (GET /models, through
+  # llm-proxy) and writes them into OpenCode's global config in /data, so they all
+  # show up next to the default model. Never blocks startup.
+  opencode-models:
+    image: node:24-alpine
+    restart: "no"
+    user: "${OPENCODE_UID:-1000}:${OPENCODE_GID:-1000}"
+    env_file:
+      - .env
+    environment:
+      NODE_USE_ENV_PROXY: "1"
+    volumes:
+      - ./config/discover-models.mjs:/discover-models.mjs:ro
+      - ${OPENCODE_DATA:-./data}:/data
+    command: ["node", "/discover-models.mjs"]
+    depends_on:
+      - llm-proxy
+    networks:
+      - agent-internal
+
+  # The Agent Sandbox: cannot reach the internet, must pass through the proxy.
+  # Runs the v2 API + web server; attach the TUI with `docker compose exec`.
+  opencode:
+    image: ghcr.io/anomalyco/opencode:${OPENCODE_VERSION:-2.0.32}
+    restart: unless-stopped
+    user: "${OPENCODE_UID:-1000}:${OPENCODE_GID:-1000}"
+    init: true
+    env_file:
+      - .env
+    environment:
+      # Endpoint/model config driven by .env (read-only, see config/opencode.json)
+      OPENCODE_CONFIG: /etc/opencode/opencode.json
+      # All OpenCode state (sessions, auth, logs, cache) under /data
+      HOME: /data/home
+      XDG_CONFIG_HOME: /data/config
+      XDG_DATA_HOME: /data/share
+      XDG_STATE_HOME: /data/state
+      XDG_CACHE_HOME: /data/cache
+    volumes:
+      - ./config/opencode.json:/etc/opencode/opencode.json:ro
+      # OPENCODE_DATA is a host path (default ./data) or the named volume "opencode-data"
+      - ${OPENCODE_DATA:-./data}:/data
+      - ./workspace:/workspace
+    working_dir: /workspace
+    command: ["serve", "--hostname", "0.0.0.0", "--port", "4096"]
+    depends_on:
+      llm-proxy:
+        condition: service_started
+      opencode-models:
+        condition: service_completed_successfully
+    networks:
+      - agent-internal
+
+volumes:
+  # Used only when OPENCODE_DATA=opencode-data (Docker-managed instead of ./data).
+  opencode-data:
+
+networks:
+  # internal: true => no default gateway, so the harness cannot reach the
+  # internet (or the host LAN) except through llm-proxy.
+  agent-internal:
+    internal: true
+
+  # Regular bridge network with WAN/DNS access, attached to the proxy only.
+  upstream-lan:
+    driver: bridge

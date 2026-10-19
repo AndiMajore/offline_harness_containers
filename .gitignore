@@ -1,0 +1,13 @@
+# Secrets
+.env
+!.env.example
+
+# Runtime state written by the harnesses
+*/data/
+*/workspace/*
+!*/workspace/.gitkeep
+*/runs/*
+!*/runs/.gitkeep
+
+# Per-folder proxy whitelist (may name private endpoints)
+allowed_domains.txt
