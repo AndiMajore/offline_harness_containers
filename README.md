@@ -8,11 +8,11 @@ proxy (`llm-proxy`) that forwards requests to whitelisted domains only.
 harness ──(agent-internal, no gateway)──> llm-proxy ──(upstream-lan)──> whitelisted LLM endpoint
 ```
 
-| Folder              | Harness                              | Web UI (opt-in, `ui` profile) |
-|---------------------|--------------------------------------|--------------------------|
-| `hermes/`           | `nousresearch/hermes-agent`          | – (attach via CLI)       |
-| `openclaw/`         | `ghcr.io/phioranex/openclaw-docker`  | http://127.0.0.1:18789   |
-| `opencode2/`        | `ghcr.io/anomalyco/opencode:2.x` (v2) | http://127.0.0.1:4096    |
+| Folder       | Harness                               | Interactive terminal UI (run in the folder)                          |
+|--------------|---------------------------------------|----------------------------------------------------------------------|
+| `hermes/`    | `nousresearch/hermes-agent`           | `docker compose attach hermes-agent`                                 |
+| `openclaw/`  | `ghcr.io/phioranex/openclaw-docker`   | `docker compose exec openclaw-gateway node /app/dist/index.js tui`   |
+| `opencode2/` | `ghcr.io/anomalyco/opencode:2.x` (v2) | `docker compose exec opencode opencode --server http://127.0.0.1:4096` |
 
 Every folder is self-contained (own compose project, own proxy, own networks,
 own whitelist), so you can copy one out on its own or run several side by side.
@@ -53,22 +53,8 @@ cp allowed_domains.example.txt allowed_domains.txt   # put your LLM endpoint's h
 All other settings in `.env` have working defaults. Each folder's README covers
 them, and everything else: all models of the endpoint, sessions, skills, the optional web UI.
 
-## Web UIs are opt-in
-
-By default **no port is published**. You use each harness through its
-interactive CLI via `docker compose exec` (see each folder's README).
-
-To get a web UI, start that folder with the `ui` profile:
-
-```sh
-docker compose --profile ui up -d       # or COMPOSE_PROFILES=ui in .env
-docker compose rm -sf ui-gateway        # turn it off again
-```
-
-This adds a small `ui-gateway` (socat) service. Docker doesn't publish ports of
-containers that are only on an `internal` network, so the gateway sits on both
-networks, listens on `127.0.0.1:<port>` on the host and forwards only to the
-harness's UI port. The harness itself still has no route out.
+By default **no port is published**. You use each harness only through its
+interactive terminal UI in the container.
 
 ## Whitelisting more endpoints
 
@@ -94,3 +80,25 @@ go into a small derived image built with internet. Each folder's README has an
 docker compose exec <service> curl -sI https://example.com          # should fail (403 from proxy)
 docker compose exec <service> curl -sI --noproxy '*' https://example.com  # should fail (no route)
 ```
+
+## Optional: web UIs (off by default)
+
+Nice to have, but not needed. OpenClaw and OpenCode also ship a web UI:
+
+| Folder       | Web UI                   | Login                                       |
+|--------------|--------------------------|---------------------------------------------|
+| `hermes/`    | –                        | –                                           |
+| `openclaw/`  | http://127.0.0.1:18789   | `OPENCLAW_GATEWAY_TOKEN`                    |
+| `opencode2/` | http://127.0.0.1:4096    | user `opencode`, password `OPENCODE_PASSWORD` |
+
+To turn one on, start that folder with the `ui` profile:
+
+```sh
+docker compose --profile ui up -d       # or COMPOSE_PROFILES=ui in .env
+docker compose rm -sf ui-gateway        # turn it off again
+```
+
+This adds a small `ui-gateway` (socat) service. Docker doesn't publish ports of
+containers that are only on an `internal` network, so the gateway sits on both
+networks, listens on `127.0.0.1:<port>` on the host and forwards only to the
+harness's UI port. The harness itself still has no route out.
