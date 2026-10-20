@@ -1,0 +1,85 @@
+name: openclaw
+
+services:
+  # The Gatekeeper: the only container with internet access. It forwards
+  # requests exclusively to the domains whitelisted in ./squid.conf.
+  llm-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+      - ./allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+    networks:
+      - agent-internal
+      - upstream-lan
+
+  # One-shot init: writes the default provider/model from .env into
+  # openclaw.json and adds every model the endpoint lists (GET /models, through
+  # llm-proxy), see config/init-config.sh. Then exits.
+  openclaw-config:
+    image: ghcr.io/phioranex/openclaw-docker:latest
+    restart: "no"
+    env_file:
+      - .env
+    volumes:
+      - ${OPENCLAW_DATA:-./data}:/home/node/.openclaw
+      - ./config/init-config.sh:/init-config.sh:ro
+    environment:
+      NODE_USE_ENV_PROXY: "1"
+      NODE_NO_WARNINGS: "1"
+    entrypoint: ["sh", "/init-config.sh"]
+    depends_on:
+      - llm-proxy
+    networks:
+      - agent-internal
+
+  # Optional ingress for the web UI, OFF by default. Enable with
+  # `docker compose --profile ui up -d` (or COMPOSE_PROFILES=ui in .env).
+  # Docker doesn't publish ports of containers that are only on an internal
+  # network, so this forwarder sits on both networks, listens on the host's
+  # loopback and forwards to the harness's UI port only. The harness itself
+  # still has no route out.
+  ui-gateway:
+    image: alpine/socat:latest
+    profiles: ["ui"]
+    restart: unless-stopped
+    command: ["tcp-listen:18789,fork,reuseaddr", "tcp-connect:openclaw-gateway:18789"]
+    ports:
+      - "127.0.0.1:18789:18789"
+    networks:
+      - agent-internal
+      - upstream-lan
+
+  # The Agent Sandbox: cannot reach the internet, must pass through the proxy.
+  openclaw-gateway:
+    image: ghcr.io/phioranex/openclaw-docker:latest
+    restart: unless-stopped
+    env_file:
+      - .env
+    volumes:
+      # OpenClaw home: openclaw.json, sessions, agents, workspace, logs.
+      # OPENCLAW_DATA is a host path (default ./data) or the named volume "openclaw-data".
+      - ${OPENCLAW_DATA:-./data}:/home/node/.openclaw
+    depends_on:
+      llm-proxy:
+        condition: service_started
+      openclaw-config:
+        condition: service_completed_successfully
+    networks:
+      - agent-internal
+    command: ["gateway", "run", "--token", "${OPENCLAW_GATEWAY_TOKEN}"]
+
+networks:
+  # internal: true => no default gateway, so the harness cannot reach the
+  # internet (or the host LAN) except through llm-proxy.
+  agent-internal:
+    internal: true
+
+  # Regular bridge network with WAN/DNS access, attached to the proxy only.
+  upstream-lan:
+    driver: bridge
+
+volumes:
+  # Used only when OPENCLAW_DATA=openclaw-data (Docker-managed instead of ./data).
+  openclaw-data:
+

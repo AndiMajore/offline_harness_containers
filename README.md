@@ -12,43 +12,51 @@ harness ──(agent-internal, no gateway)──> llm-proxy ──(upstream-lan)
 |---------------------|--------------------------------------|--------------------------|
 | `hermes/`           | `nousresearch/hermes-agent`          | – (attach via CLI)       |
 | `openclaw/`         | `ghcr.io/phioranex/openclaw-docker`  | http://127.0.0.1:18789   |
-| `deepseek-harness/` | `moelin/deepseek-harness:workstation`| http://127.0.0.1:56789   |
 | `opencode2/`        | `ghcr.io/anomalyco/opencode:2.x` (v2) | http://127.0.0.1:4096    |
-| `harness2/`         | google-research/harness2 (built locally, JobBench) | – (batch CLI)  |
 
 Every folder is self-contained (own compose project, own proxy, own networks,
 own whitelist), so you can copy one out on its own or run several side by side.
 
-## Usage
+## Quick setup
+
+For each harness, first create your local config from the examples:
 
 ```sh
-cd <harness>
-cp .env.example .env          # fill in API key / tokens
-cp allowed_domains.example.txt allowed_domains.txt
-$EDITOR allowed_domains.txt   # your LLM endpoint's host
-docker compose up -d
+cd <folder>                                          # hermes/, openclaw/ or opencode2/
+cp .env.example .env
+cp allowed_domains.example.txt allowed_domains.txt   # put your LLM endpoint's host in there
 ```
 
-Harness-specific notes (see each folder's README for details):
+### Hermes (`hermes/`)
 
-- **hermes** – default model/provider come from `.env` (written to `config.yaml` on start);
-  attach to the interactive agent with `docker compose attach hermes-agent`
-  (detach with `Ctrl-p Ctrl-q`).
-- **openclaw** – default model/provider and the API key come from `.env` and are
-  written to `openclaw.json` on start. Terminal UI: `docker compose exec openclaw-gateway
-  node /app/dist/index.js tui` (optional web UI: token `OPENCLAW_GATEWAY_TOKEN`).
-- **opencode2** – attach the TUI: `docker compose exec opencode opencode --server http://127.0.0.1:4096`
-  (optional web UI: sign in as `opencode` / `OPENCODE_PASSWORD`).
-- **harness2** – build first (`docker compose build`, needs internet), then run
-  `harness2 --bench jb …` via `docker compose exec harness2`.
-- **deepseek-harness** – one-shot tasks: `docker compose exec -u node deepseek-harness dsh headless "…"`
-  (no terminal chat UI; optional web UI: `admin` / `AUTH_PASSWORD`). Files go in `./workspace`.
+1. In `.env`, set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `HERMES_MODEL`, and
+   `HERMES_UID` / `HERMES_GID` (output of `id -u` / `id -g`).
+2. `docker compose up -d`
+3. `docker compose attach hermes-agent` (detach with `Ctrl-p Ctrl-q`; don't exit
+   the chat, that restarts the container)
+
+### OpenClaw (`openclaw/`)
+
+1. In `.env`, set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENCLAW_MODEL`, and
+   `OPENCLAW_GATEWAY_TOKEN` (e.g. `openssl rand -hex 32`).
+2. `docker compose up -d`
+3. `docker compose exec openclaw-gateway node /app/dist/index.js tui`
+
+### OpenCode v2 (`opencode2/`)
+
+1. In `.env`, set `OPENAI_BASE_URL`, `OPENAI_API_KEY`, `OPENAI_MODEL`,
+   `OPENCODE_PASSWORD` (e.g. `openssl rand -hex 24`), and `OPENCODE_UID` /
+   `OPENCODE_GID` (output of `id -u` / `id -g`).
+2. `mkdir -p data && docker compose up -d`
+3. `docker compose exec opencode opencode --server http://127.0.0.1:4096`
+
+All other settings in `.env` have working defaults. Each folder's README covers
+them, and everything else: all models of the endpoint, sessions, skills, the optional web UI.
 
 ## Web UIs are opt-in
 
 By default **no port is published**. You use each harness through its
-interactive CLI via `docker compose exec` (see each folder's README). The only
-exception is deepseek-harness, which has no terminal chat UI; there you get one-shot `dsh headless`.
+interactive CLI via `docker compose exec` (see each folder's README).
 
 To get a web UI, start that folder with the `ui` profile:
 

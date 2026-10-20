@@ -1,0 +1,30 @@
+{
+  "gateway": {
+    "mode": "local",
+    "bind": "lan",
+    "port": 18789
+  },
+  "models": {
+    "providers": {
+      "custom": {
+        "baseUrl": "https://llm.example.com/v1",
+        "apiKey": {
+          "source": "env",
+          "provider": "default",
+          "id": "OPENAI_API_KEY"
+        },
+        "models": [
+          {
+            "id": "gpt-oss:20b",
+            "name": "GPT-OSS:20b"
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": "custom/gpt-oss:20b"
+    }
+  }
+}

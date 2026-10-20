@@ -116,35 +116,11 @@ A skill is a folder with a `SKILL.md` (plus optional scripts and reference files
 Skills are instructions and often scripts that the agent will follow, so review
 what you install.
 
-### 1. Install the skill files (needs internet, on the host)
+### 1. Install the skill files (needs internet, outside the sandbox)
 
-OpenCode v2 has no skill installer. It scans folders, and these are persisted here:
-
-| Folder on the host                         | Scope         |
-|--------------------------------------------|---------------|
-| `data/home/.agents/skills/<name>/` (`~/.agents/skills`, `HOME=/data/home`) | all projects |
-| `data/home/.claude/skills/<name>/` (`~/.claude/skills`)                  | all projects |
-| `workspace/<project>/.agents/skills/<name>/`                             | that project |
-
-Get the skill folder with `git` on the host, e.g. Anthropic's pdf skill:
-
-```sh
-git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills /tmp/anthropic-skills
-git -C /tmp/anthropic-skills sparse-checkout set skills/pdf
-mkdir -p data/home/.agents/skills
-cp -r /tmp/anthropic-skills/skills/pdf data/home/.agents/skills/
-docker compose exec opencode opencode reload --server http://127.0.0.1:4096
-```
-
-With `OPENCODE_DATA=opencode-data`, copy the folder into the volume instead, e.g.
-with `docker compose cp ./pdf opencode:/data/home/.agents/skills/`.
-
-### From skills.sh
-
-skills.sh lists skills as `skills.sh/<owner>/<repo>/<skill>`, e.g.
-`skills.sh/anthropics/skills/pdf`. The files live in the GitHub repo `<owner>/<repo>`.
-
-**Simplest: `npx skills` on the host** (needs Node.js on the host):
+**Option A (simplest): `npx skills` on the host.** Needs Node.js on the host.
+It works for any skill on [skills.sh](https://skills.sh) or in a GitHub repo.
+A skills.sh page `skills.sh/<owner>/<repo>/<skill>` means repo `<owner>/<repo>`:
 
 ```sh
 mkdir -p data/home && cd data/home
@@ -153,11 +129,11 @@ cd ../..
 docker compose exec opencode opencode reload --server http://127.0.0.1:4096
 ```
 
-This gives `data/home/.agents/skills/<skill>/` (`~/.agents/skills` for `HOME=/data/home`).
+This gives `data/home/.agents/skills/<skill>/` (`~/.agents/skills`, since `HOME=/data/home`).
 
-- Run it **in exactly that folder**. Without `-g`, the CLI installs relative to
-  the current directory. Run one level too deep (e.g. inside `.agents/skills`)
-  and you get a nested `.agents/skills/.agents/skills/…` that the harness doesn't find.
+- Run it **in exactly that folder** (`data/home`). Without `-g`, the CLI installs
+  relative to the current directory. Run it inside `.agents/skills` and you get a
+  nested `.agents/skills/.agents/skills/…` that OpenCode doesn't find.
 - Name **one** agent with `-a`, so the prompt asking for additional agents is
   skipped. With several agents, the CLI keeps one real copy and symlinks the
   rest; those symlinks can break inside the container.
@@ -167,30 +143,42 @@ This gives `data/home/.agents/skills/<skill>/` (`~/.agents/skills` for `HOME=/da
 - Skills with `disable-model-invocation: true` (e.g. `setup-matt-pocock-skills`)
   are installed but not offered to the model on its own. Ask for them by name.
 
-**Without Node on the host**, run the same CLI in a throwaway container:
+OpenCode reads skills from these folders (one level deep, `<name>/SKILL.md`):
 
-Use the skills.sh CLI (`npx skills`) with its `opencode` target (`~/.agents/skills`).
-`HOME` is `/data/home` here, so mount `./data/home` as the CLI's home. **Create
-the folder first**, or Docker creates it as root and the CLI can't write:
+| Folder on the host                                   | Scope        |
+|------------------------------------------------------|--------------|
+| `data/home/.agents/skills/<name>/`                   | all projects |
+| `data/home/.claude/skills/<name>/`                   | all projects |
+| `workspace/<project>/.agents/skills/<name>/`         | that project |
+
+**Option B: copy a skill folder by hand**, e.g. with `git` on the host:
+
+```sh
+git clone --depth 1 --filter=blob:none --sparse https://github.com/anthropics/skills /tmp/anthropic-skills
+git -C /tmp/anthropic-skills sparse-checkout set skills/pdf
+mkdir -p data/home/.agents/skills
+cp -r /tmp/anthropic-skills/skills/pdf data/home/.agents/skills/
+```
+
+With `OPENCODE_DATA=opencode-data`, copy into the volume instead:
+`docker compose cp ./pdf opencode:/data/home/.agents/skills/`.
+
+**Option C: the skills.sh CLI in a throwaway container**, if you have no Node on
+the host. Create `data/home` first, or Docker creates it as root and the CLI can't write:
 
 ```sh
 mkdir -p data/home
 docker run --rm -u "$(id -u):$(id -g)" -e HOME=/tmp/h -e npm_config_cache=/tmp/npm -e DISABLE_TELEMETRY=1 \
   -v "$PWD/data/home:/tmp/h" node:24 \
   npx -y skills@1.7.2 add anthropics/skills -s pdf -a opencode -g -y --copy
-docker compose exec opencode opencode reload --server http://127.0.0.1:4096
 ```
 
-That gives `data/home/.agents/skills/<skill>/`.
-
-- `node:24` is the full Node image (the CLI needs `git`). It runs on Docker's
-  default network with internet, outside the sandbox. The CLI is pinned
-  (`skills@1.7.2`) and telemetry is off.
-- `--copy` writes real files instead of symlinks, which wouldn't resolve inside the sandbox.
-- To see which skills a repo contains, run the same `docker run` with
-  `npx -y skills@1.7.2 add <owner>/<repo> -l` (lists, installs nothing).
+- `node:24` is the full Node image (the CLI needs `git`). The CLI is pinned
+  (`skills@1.7.2`) and telemetry is off. `--copy` writes real files instead of symlinks.
 - **Check the folder afterwards.** The CLI exits with `0` even when it couldn't
   write, e.g. when Docker created a missing mount folder as root.
+
+After any option: `docker compose exec opencode opencode reload --server http://127.0.0.1:4096`.
 
 ### 2. Skills that need extra packages
 

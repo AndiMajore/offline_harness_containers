@@ -1,0 +1,4 @@
+# Domains the sandbox may reach through llm-proxy, one per line.
+# Copy to allowed_domains.txt (gitignored) and put your LLM endpoint's host here.
+# A leading dot also matches subdomains, e.g. ".example.com".
+llm.example.com

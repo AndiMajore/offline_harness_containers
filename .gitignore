@@ -1,5 +1,6 @@
-# Secrets
+# Secrets (also copies like .env.bak / .env.local)
 .env
+.env.*
 !.env.example
 
 # Runtime state written by the harnesses

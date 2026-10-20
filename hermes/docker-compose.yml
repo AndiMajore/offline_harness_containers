@@ -1,0 +1,68 @@
+name: hermes
+
+services:
+  # The Gatekeeper: the only container with internet access. It forwards
+  # requests exclusively to the domains whitelisted in ./squid.conf.
+  llm-proxy:
+    image: ubuntu/squid:latest
+    restart: unless-stopped
+    volumes:
+      - ./squid.conf:/etc/squid/squid.conf:ro
+      - ./allowed_domains.txt:/etc/squid/allowed_domains.txt:ro
+    networks:
+      - agent-internal
+      - upstream-lan
+
+  # One-shot init: writes the default provider/model/endpoint from .env into
+  # $HERMES_HOME/config.yaml, then exits. Needs no network at all.
+  hermes-config:
+    image: nousresearch/hermes-agent:latest
+    restart: "no"
+    env_file:
+      - .env
+    volumes:
+      - ${HERMES_DATA:-./data}:/opt/data
+    network_mode: none
+    command:
+      - sh
+      - -c
+      - |
+        set -e
+        if [ -n "$${HERMES_PROVIDER}" ]; then hermes config set model.provider "$${HERMES_PROVIDER}"; fi
+        if [ -n "$${HERMES_MODEL}" ];    then hermes config set model.default  "$${HERMES_MODEL}"; fi
+        if [ -n "$${HERMES_BASE_URL}" ]; then hermes config set model.base_url "$${HERMES_BASE_URL}"; fi
+
+  # The Agent Sandbox: cannot reach the internet, must pass through the proxy.
+  hermes-agent:
+    image: nousresearch/hermes-agent:latest
+    restart: unless-stopped
+    stdin_open: true
+    tty: true
+    env_file:
+      - .env
+    volumes:
+      # HERMES_HOME: config.yaml, sessions, memories, skills.
+      # HERMES_DATA is a host path (default ./data) or the named volume "hermes-data".
+      - ${HERMES_DATA:-./data}:/opt/data
+    depends_on:
+      llm-proxy:
+        condition: service_started
+      hermes-config:
+        condition: service_completed_successfully
+    networks:
+      - agent-internal
+
+networks:
+  # internal: true => no default gateway, so the harness cannot reach the
+  # internet (or the host LAN) except through llm-proxy.
+  agent-internal:
+    internal: true
+
+  # Regular bridge network with WAN/DNS access, attached to the proxy only.
+  upstream-lan:
+    driver: bridge
+
+volumes:
+  # Used only when HERMES_DATA=hermes-data (Docker-managed instead of ./data).
+  hermes-data:
+
